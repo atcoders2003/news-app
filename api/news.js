@@ -1,5 +1,3 @@
-import axios from 'axios'
-
 // Simple in-memory cache for example (replace with Redis or persistent cache in production)
 const cache = new Map()
 const CACHE_TTL_MS = 15 * 60 * 1000 // 15 minutes
@@ -12,14 +10,21 @@ function makeCacheKey(topics = [], country = '', pageSize = 10) {
 }
 
 async function fetchFromNewsAPI(topics = [], country = '', pageSize = 10) {
-  const requests = topics.map(topic => {
+  const requests = topics.map(async topic => {
     const params = new URLSearchParams()
     if (topic) params.set('q', topic)
     if (country) params.set('country', country)
     params.set('pageSize', String(pageSize))
-    return axios.get(`${BASE}/top-headlines?${params.toString()}`, {
-      headers: { 'X-Api-Key': NEWSAPI_KEY }
-    }).then(r => r.data.articles || [])
+    const url = `${BASE}/top-headlines?${params.toString()}`
+    const resp = await fetch(url, { headers: { 'X-Api-Key': NEWSAPI_KEY } })
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      const err = new Error(`newsapi ${resp.status} ${resp.statusText}: ${text}`)
+      err.status = resp.status
+      throw err
+    }
+    const data = await resp.json()
+    return data.articles || []
   })
 
   const results = await Promise.all(requests)
