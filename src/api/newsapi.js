@@ -45,10 +45,28 @@ async function fetchDirect(topics = [], country = '', pageSize = 10) {
   return results.flat()
 }
 
+function filterAndSortRecent(articles = [], maxAgeMs) {
+  const now = Date.now()
+  const filtered = (articles || []).filter(a => {
+    if (!a || !a.publishedAt) return false
+    const t = new Date(a.publishedAt).getTime()
+    if (!Number.isFinite(t)) return false
+    return (now - t) <= maxAgeMs
+  })
+  filtered.sort((a, b) => {
+    const ta = new Date(a.publishedAt).getTime() || 0
+    const tb = new Date(b.publishedAt).getTime() || 0
+    return tb - ta
+  })
+  return filtered
+}
+
 // Public: fetch articles for topics with local cache; returns cached quickly and refreshes in background
 export async function fetchArticlesForTopics(topics = [], country = '', opts = {}) {
   const pageSize = opts?.pageSize ?? 10
-  const key = makeKey(topics, country, pageSize)
+  const maxAgeDays = opts?.maxAgeDays ?? 3
+  const maxAgeMs = Math.max(1, Number(maxAgeDays)) * 24 * 60 * 60 * 1000
+  const key = `${makeKey(topics, country, pageSize)}:ageDays=${maxAgeDays}`
   try {
     const cached = await idbGet(key)
     const now = Date.now()
@@ -65,7 +83,7 @@ export async function fetchArticlesForTopics(topics = [], country = '', opts = {
           } catch (e) { console.warn('background refresh failed', e) }
         })()
       }
-      return uniqByUrl(cached.articles || [])
+      return filterAndSortRecent(uniqByUrl(cached.articles || []), maxAgeMs)
     }
 
     // No cache or expired: fetch now (prefer proxy)
@@ -75,8 +93,9 @@ export async function fetchArticlesForTopics(topics = [], country = '', opts = {
       articles = await fetchDirect(topics, country, pageSize)
     }
     const merged = uniqByUrl(articles)
-    await idbSet(key, { ts: Date.now(), articles: merged })
-    return merged
+    const fresh = filterAndSortRecent(merged, maxAgeMs)
+    await idbSet(key, { ts: Date.now(), articles: fresh })
+    return fresh
   } catch (err) {
     console.warn('fetchArticlesForTopics error', err)
     // Last-resort: return empty list

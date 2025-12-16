@@ -1,12 +1,37 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+
+function formatWhen(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(d)
+}
 
 function Card({ article, onOpen }) {
+  const when = useMemo(() => formatWhen(article?.publishedAt), [article?.publishedAt])
+  const subtitle = article?.description || article?.content || ''
+
   return (
-    <div className="card" onDoubleClick={() => onOpen(article)}>
-      <h3>{article.title}</h3>
-      <p>{article.description}</p>
-      <small>{article.source?.name} • {new Date(article.publishedAt).toLocaleString()}</small>
-    </div>
+    <article className="card" onDoubleClick={() => onOpen(article)}>
+      {article?.urlToImage ? (
+        <div className="card-media" aria-hidden="true">
+          <img className="card-img" src={article.urlToImage} alt="" loading="lazy" />
+        </div>
+      ) : null}
+
+      <div className="card-body">
+        <h3 className="card-title">{article.title}</h3>
+        {subtitle ? <p className="card-subtitle">{subtitle}</p> : null}
+        <div className="card-meta">
+          <span className="card-source">{article.source?.name || 'Unknown source'}</span>
+          {when ? <span className="card-dot">•</span> : null}
+          {when ? <time dateTime={article.publishedAt}>{when}</time> : null}
+        </div>
+      </div>
+    </article>
   )
 }
 
@@ -14,10 +39,24 @@ export default function CardFeed({ articles = [] }) {
   const [idx, setIdx] = useState(0)
   const current = articles[idx]
   const [touchStartX, setTouchStartX] = useState(null)
+  const stageRef = useRef(null)
 
   function next() { setIdx(i => Math.min(i + 1, articles.length - 1)) }
   function prev() { setIdx(i => Math.max(i - 1, 0)) }
   function open(a) { if (!a || !a.url) return; window.open(a.url, '_blank') }
+
+  useEffect(() => {
+    setIdx(0)
+  }, [articles.length])
+
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === 'ArrowLeft') prev()
+      if (e.key === 'ArrowRight') next()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [articles.length])
 
   function onTouchStart(e) {
     setTouchStartX(e.touches ? e.touches[0].clientX : e.clientX)
@@ -34,19 +73,32 @@ export default function CardFeed({ articles = [] }) {
     setTouchStartX(null)
   }
 
-  if (!articles.length) return <p>No articles</p>
+  if (!articles.length) return <p className="muted">No articles</p>
 
   return (
-    <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <div className="feed-controls">
-          <button onClick={prev} aria-label="previous">◀</button>
-          <button onClick={next} aria-label="next">▶</button>
-        </div>
-        <div>{idx + 1} / {articles.length}</div>
+    <div className="feed">
+      <div className="feed-top">
+        <div className="feed-count">{idx + 1} / {articles.length}</div>
       </div>
+
       {current && (
-        <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} onMouseDown={onTouchStart} onMouseUp={onTouchEnd}>
+        <div
+          ref={stageRef}
+          className="feed-stage"
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          onMouseDown={onTouchStart}
+          onMouseUp={onTouchEnd}
+          onClick={(e) => {
+            // Desktop-friendly navigation without visible arrows.
+            const el = stageRef.current
+            if (!el) return
+            const rect = el.getBoundingClientRect()
+            const x = e.clientX - rect.left
+            if (x < rect.width * 0.4) prev()
+            else if (x > rect.width * 0.6) next()
+          }}
+        >
           <Card article={current} onOpen={open} />
         </div>
       )}

@@ -16,6 +16,12 @@ export default function App() {
   const [articles, setArticles] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30 * 1000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     if (mode !== 'feed') return
@@ -27,7 +33,7 @@ export default function App() {
         const otherTopics = ALL_TOPICS.filter(t => !preferred.includes(t))
 
         // 1) preferred first
-        const preferredArticles = await fetchArticlesForTopics(preferred, country, { pageSize: 10 })
+        const preferredArticles = await fetchArticlesForTopics(preferred, country, { pageSize: 10, maxAgeDays: 3 })
         setArticles(preferredArticles)
 
         // 2) then fetch the remaining topics in the background (smaller pageSize)
@@ -35,7 +41,7 @@ export default function App() {
           setLoadingMore(true)
           ;(async () => {
             try {
-              const more = await fetchArticlesForTopics(otherTopics, country, { pageSize: 4 })
+              const more = await fetchArticlesForTopics(otherTopics, country, { pageSize: 4, maxAgeDays: 3 })
               setArticles(prev => uniqByUrl([...(prev || []), ...(more || [])]))
             } catch (e) {
               console.warn('fetch more topics failed', e)
@@ -67,9 +73,15 @@ export default function App() {
           <div className="brand-subtitle">Swipe-first headlines</div>
         </div>
 
-        <button type="button" className="btn btn--ghost" onClick={() => setMode('welcome')}>
-          Topics
-        </button>
+        <div className="header-right">
+          <div className="header-time" title={Intl.DateTimeFormat().resolvedOptions().timeZone}>
+            {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(now)}
+          </div>
+
+          <button type="button" className="btn btn--ghost" onClick={() => setMode('welcome')}>
+            Topics
+          </button>
+        </div>
       </header>
       <main>
         {mode === 'welcome' ? (

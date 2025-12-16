@@ -9,6 +9,7 @@
 |------|--------|
 | 2025-12-15 | Scaffolding: React+Vite app created |
 | 2025-12-16 | Added serverless proxy example, client proxy fallback, IndexedDB cache utility, swipe gestures, and implementation doc |
+| 2025-12-16 | UI refresh: first-run Welcome topic pills, preferred-first feed ordering, centered card layout, and recency filtering |
 
 ## Implementation Summary
 Implemented MVP scaffold and completed core integration work to enable local development and to align with architectural decisions:
@@ -17,6 +18,10 @@ Implemented MVP scaffold and completed core integration work to enable local dev
 - Serverless proxy example: `api/news.js` (Vercel/Netlify compatible) that aggregates topic requests, caches in-memory (15 min TTL), and deduplicates by URL.
 - Client-side caching: minimal IndexedDB helper at `src/utils/idb.js` (available for future integration). Current client uses proxy first; future step will add background refresh and IndexedDB usage per plan.
 - UX: `CardFeed` supports swipe gestures (touch and mouse) and double-click/double-tap to open articles.
+- Onboarding: first-run Welcome screen with topic pills; preferences persist to localStorage.
+- Feed ordering: preferred topics load first; remaining topics append after.
+- Recency: articles are filtered to “recent” only (default: last 3 days) and sorted newest-first.
+- Header shows current local date/time (browser timezone).
 
 ## Milestones Completed
 - [x] Project scaffold (React+Vite)
@@ -30,6 +35,7 @@ Implemented MVP scaffold and completed core integration work to enable local dev
 - `src/utils/idb.js` — IndexedDB helper
 - `src/api/newsapi.js` — updated to prefer proxy
 - `src/components/CardFeed.jsx` — updated with swipe handlers
+- `src/components/Welcome.jsx` — first-run topic pill picker
 - `agent-output/implementation/newsapp-implementation.md` — this doc
 
 ## Files Modified
@@ -37,7 +43,8 @@ Implemented MVP scaffold and completed core integration work to enable local dev
 
 ## Code Quality Validation
 - Dev server started and dependencies installed.
-- No automated tests added yet; add tests in next iteration.
+- Added a basic unit test for `uniqByUrl` (Vitest).
+- Local build succeeded.
 
 ## Value Statement Validation
 Original: As a casual mobile reader, I want a swipeable, topic-and-location-prioritized news feed…
