@@ -1,0 +1,84 @@
+import axios from 'axios'
+import { idbGet, idbSet } from '../utils/idb'
+
+const KEY = import.meta.env.VITE_NEWSAPI_KEY
+const PROXY_URL = import.meta.env.VITE_PROXY_URL || '/api/news'
+
+export function uniqByUrl(items) {
+  const seen = new Set()
+  const out = []
+  for (const it of items) {
+    if (!it || !it.url) continue
+    if (seen.has(it.url)) continue
+    seen.add(it.url)
+    out.push(it)
+  }
+  return out
+}
+
+// Local cache policy
+const LOCAL_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
+
+function makeKey(topics = [], country = '') {
+  return `articles:${topics.join(',')}:${country}`
+}
+
+async function fetchViaProxy(topics = [], country = '') {
+  const resp = await axios.post(PROXY_URL, { topics, country, pageSize: 10 })
+  return resp.data?.articles || []
+}
+
+async function fetchDirect(topics = [], country = '') {
+  if (!KEY) throw new Error('VITE_NEWSAPI_KEY not set')
+  const BASE = 'https://newsapi.org/v2'
+  const requests = topics.map(topic => {
+    const params = new URLSearchParams()
+    if (topic) params.set('q', topic)
+    if (country) params.set('country', country)
+    params.set('pageSize', '10')
+    return axios.get(`${BASE}/top-headlines?${params.toString()}`, {
+      headers: { 'X-Api-Key': KEY }
+    }).then(r => r.data.articles || []).catch(err => { console.warn('newsapi err', err); return [] })
+  })
+  const results = await Promise.all(requests)
+  return results.flat()
+}
+
+// Public: fetch articles for topics with local cache; returns cached quickly and refreshes in background
+export async function fetchArticlesForTopics(topics = [], country = '') {
+  const key = makeKey(topics, country)
+  try {
+    const cached = await idbGet(key)
+    const now = Date.now()
+    if (cached && cached.ts && (now - cached.ts) < LOCAL_TTL_MS) {
+      // Return cached results immediately
+      // If cache is older than REFRESH_INTERVAL_MS, refresh in background
+      if ((now - cached.ts) > REFRESH_INTERVAL_MS) {
+        ;(async () => {
+          try {
+            let articles = []
+            try { articles = await fetchViaProxy(topics, country) } catch { articles = await fetchDirect(topics, country) }
+            const merged = uniqByUrl(articles)
+            await idbSet(key, { ts: Date.now(), articles: merged })
+          } catch (e) { console.warn('background refresh failed', e) }
+        })()
+      }
+      return uniqByUrl(cached.articles || [])
+    }
+
+    // No cache or expired: fetch now (prefer proxy)
+    let articles = []
+    try { articles = await fetchViaProxy(topics, country) } catch (err) {
+      console.warn('proxy fetch failed, falling back to direct', err?.message)
+      articles = await fetchDirect(topics, country)
+    }
+    const merged = uniqByUrl(articles)
+    await idbSet(key, { ts: Date.now(), articles: merged })
+    return merged
+  } catch (err) {
+    console.warn('fetchArticlesForTopics error', err)
+    // Last-resort: return empty list
+    return []
+  }
+}
