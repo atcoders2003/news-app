@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react'
-import Preferences from './components/Preferences'
+import Welcome from './components/Welcome'
 import CardFeed from './components/CardFeed'
-import { fetchArticlesForTopics } from './api/newsapi'
+import { fetchArticlesForTopics, uniqByUrl } from './api/newsapi'
+
+const ALL_TOPICS = ['business','entertainment','general','health','science','sports','technology']
 
 export default function App() {
   const [topics, setTopics] = useState(() => {
@@ -10,37 +12,90 @@ export default function App() {
     } catch { return ['technology', 'business'] }
   })
   const [country, setCountry] = useState(() => localStorage.getItem('prefs.country') || '')
+  const [mode, setMode] = useState(() => (localStorage.getItem('prefs.onboarded') ? 'feed' : 'welcome'))
   const [articles, setArticles] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
+    if (mode !== 'feed') return
+
     async function load() {
       setLoading(true)
       try {
-        const res = await fetchArticlesForTopics(topics, country)
-        setArticles(res)
+        const preferred = Array.isArray(topics) && topics.length ? topics : ['general']
+        const otherTopics = ALL_TOPICS.filter(t => !preferred.includes(t))
+
+        // 1) preferred first
+        const preferredArticles = await fetchArticlesForTopics(preferred, country, { pageSize: 10 })
+        setArticles(preferredArticles)
+
+        // 2) then fetch the remaining topics in the background (smaller pageSize)
+        if (otherTopics.length) {
+          setLoadingMore(true)
+          ;(async () => {
+            try {
+              const more = await fetchArticlesForTopics(otherTopics, country, { pageSize: 4 })
+              setArticles(prev => uniqByUrl([...(prev || []), ...(more || [])]))
+            } catch (e) {
+              console.warn('fetch more topics failed', e)
+            } finally {
+              setLoadingMore(false)
+            }
+          })()
+        }
       } catch (err) {
         console.error(err)
       } finally { setLoading(false) }
     }
     load()
-  }, [topics, country])
+  }, [topics, country, mode])
 
-  function handlePrefsChange(newTopics, newCountry) {
+  function persistPrefs(newTopics, newCountry) {
     setTopics(newTopics)
     setCountry(newCountry)
     localStorage.setItem('prefs.topics', JSON.stringify(newTopics))
-    localStorage.setItem('prefs.country', newCountry)
+    localStorage.setItem('prefs.country', newCountry || '')
+    localStorage.setItem('prefs.onboarded', '1')
   }
 
   return (
     <div className="app-root">
       <header className="app-header">
-        <h1>News App</h1>
-        <Preferences topics={topics} country={country} onChange={handlePrefsChange} />
+        <div className="brand">
+          <div className="brand-title">News</div>
+          <div className="brand-subtitle">Swipe-first headlines</div>
+        </div>
+
+        <button type="button" className="btn btn--ghost" onClick={() => setMode('welcome')}>
+          Topics
+        </button>
       </header>
       <main>
-        {loading ? <p>Loading...</p> : <CardFeed articles={articles} />}
+        {mode === 'welcome' ? (
+          <Welcome
+            allTopics={ALL_TOPICS}
+            initialTopics={topics}
+            initialCountry={country}
+            title={localStorage.getItem('prefs.onboarded') ? 'Update your topics' : 'Welcome'}
+            subtitle={localStorage.getItem('prefs.onboarded')
+              ? 'Pick your preferred topics. We’ll show them first.'
+              : 'Pick your preferred topics. We’ll show them first.'}
+            onContinue={(newTopics, newCountry) => {
+              persistPrefs(newTopics.length ? newTopics : ['general'], newCountry)
+              setMode('feed')
+            }}
+            onSkip={(newCountry) => {
+              persistPrefs(['general'], newCountry)
+              setMode('feed')
+            }}
+          />
+        ) : (
+          <>
+            {loading ? <p className="muted">Loading your topics…</p> : <CardFeed articles={articles} />}
+            {loadingMore && !loading ? <p className="muted">Loading more topics…</p> : null}
+          </>
+        )}
       </main>
     </div>
   )

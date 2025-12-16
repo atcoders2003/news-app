@@ -20,23 +20,23 @@ export function uniqByUrl(items) {
 const LOCAL_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
 
-function makeKey(topics = [], country = '') {
-  return `articles:${topics.join(',')}:${country}`
+function makeKey(topics = [], country = '', pageSize = 10) {
+  return `articles:${topics.join(',')}:${country}:${pageSize}`
 }
 
-async function fetchViaProxy(topics = [], country = '') {
-  const resp = await axios.post(PROXY_URL, { topics, country, pageSize: 10 })
+async function fetchViaProxy(topics = [], country = '', pageSize = 10) {
+  const resp = await axios.post(PROXY_URL, { topics, country, pageSize })
   return resp.data?.articles || []
 }
 
-async function fetchDirect(topics = [], country = '') {
+async function fetchDirect(topics = [], country = '', pageSize = 10) {
   if (!KEY) throw new Error('VITE_NEWSAPI_KEY not set')
   const BASE = 'https://newsapi.org/v2'
   const requests = topics.map(topic => {
     const params = new URLSearchParams()
     if (topic) params.set('q', topic)
     if (country) params.set('country', country)
-    params.set('pageSize', '10')
+    params.set('pageSize', String(pageSize))
     return axios.get(`${BASE}/top-headlines?${params.toString()}`, {
       headers: { 'X-Api-Key': KEY }
     }).then(r => r.data.articles || []).catch(err => { console.warn('newsapi err', err); return [] })
@@ -46,8 +46,9 @@ async function fetchDirect(topics = [], country = '') {
 }
 
 // Public: fetch articles for topics with local cache; returns cached quickly and refreshes in background
-export async function fetchArticlesForTopics(topics = [], country = '') {
-  const key = makeKey(topics, country)
+export async function fetchArticlesForTopics(topics = [], country = '', opts = {}) {
+  const pageSize = opts?.pageSize ?? 10
+  const key = makeKey(topics, country, pageSize)
   try {
     const cached = await idbGet(key)
     const now = Date.now()
@@ -58,7 +59,7 @@ export async function fetchArticlesForTopics(topics = [], country = '') {
         ;(async () => {
           try {
             let articles = []
-            try { articles = await fetchViaProxy(topics, country) } catch { articles = await fetchDirect(topics, country) }
+            try { articles = await fetchViaProxy(topics, country, pageSize) } catch { articles = await fetchDirect(topics, country, pageSize) }
             const merged = uniqByUrl(articles)
             await idbSet(key, { ts: Date.now(), articles: merged })
           } catch (e) { console.warn('background refresh failed', e) }
@@ -69,9 +70,9 @@ export async function fetchArticlesForTopics(topics = [], country = '') {
 
     // No cache or expired: fetch now (prefer proxy)
     let articles = []
-    try { articles = await fetchViaProxy(topics, country) } catch (err) {
+    try { articles = await fetchViaProxy(topics, country, pageSize) } catch (err) {
       console.warn('proxy fetch failed, falling back to direct', err?.message)
-      articles = await fetchDirect(topics, country)
+      articles = await fetchDirect(topics, country, pageSize)
     }
     const merged = uniqByUrl(articles)
     await idbSet(key, { ts: Date.now(), articles: merged })
